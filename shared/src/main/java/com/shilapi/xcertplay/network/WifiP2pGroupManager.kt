@@ -748,8 +748,13 @@ class WifiP2pGroupManager(
     /** Returns false only when Wi-Fi is on and reports no 5 GHz band; it also reads false while Wi-Fi is off. */
     private fun checkPrerequisites(station: Station): Boolean {
         val wifi = appContext.getSystemService(WifiManager::class.java)
+        var wifiEnabled = runCatching { wifi?.isWifiEnabled }.getOrNull()
+        if (GeelyHeadUnit.detected && wifiEnabled == false) {
+            if (GeelyHeadUnit.setAndroidWifiEnabled(appContext, true, diagnostic)) {
+                wifiEnabled = true
+            }
+        }
         val fiveGhzSupported = runCatching { wifi?.is5GHzBandSupported }.getOrNull()
-        val wifiEnabled = runCatching { wifi?.isWifiEnabled }.getOrNull()
         val locationEnabled = runCatching {
             appContext.getSystemService(LocationManager::class.java)?.isLocationEnabledCompat()
         }.getOrNull()

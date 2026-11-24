@@ -83,9 +83,11 @@ internal class ManualHotspotInterfaces(
         val owned = when {
             // An explicit choice is honoured even when the platform already lists a Wi-Fi AP.
             explicit != null -> (observed ?: emptySet()) + explicit
-            // Only when the hotspot is reported on and no tethered Wi-Fi interface exists. An
-            // unobservable set stays unobservable, so the fallback evidence keeps working.
-            apEnabled == true && observed?.isEmpty() == true -> {
+            // Only when the hotspot is reported on (or on Geely/Lynk where Android hides AP state)
+            // and no tethered Wi-Fi interface exists. An unobservable set stays unobservable on
+            // other units, so the fallback evidence keeps working.
+            (apEnabled == true && observed?.isEmpty() == true) ||
+                (GeelyHeadUnit.detected && (observed == null || observed.isEmpty())) -> {
                 val discovered = hotspotCarrierCandidates(interfaces, upstreams.orEmpty(), defaultInterface)
                 if (discovered.isEmpty()) observed else discovered
             }

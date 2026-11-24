@@ -111,6 +111,70 @@ object EthernetIpv6Codec {
         return result
     }
 
+    /**
+     * Replies directly to an ICMPv6 Neighbor Solicitation (type 135) targeting [hostIpv6].
+     *
+     * Android TUN interfaces are layer-3 NOARP devices; some kernels (such as Qualcomm SA8155
+     * Android 11 on Geely/Lynk & Co) never emit Neighbor Advertisements on tun0, leaving the
+     * iPhone unable to resolve the head unit's link-local address over NCM.
+     */
+    fun buildNeighborAdvertisementReply(
+        frame: ByteArray,
+        offset: Int,
+        length: Int,
+        hostIpv6: ByteArray,
+        hostMac: ByteArray,
+    ): ByteArray? {
+        require(hostIpv6.size == 16) { "hostIpv6 must be 16 bytes" }
+        require(hostMac.size == MAC_BYTES) { "hostMac must be $MAC_BYTES bytes" }
+        if (length < ICMPV6_NA_MIN_BYTES || offset < 0 || offset + length > frame.size) return null
+        if ((frame[offset].toInt() ushr 4 and 0x0f) != 6) return null
+        if ((frame[offset + IPV6_NEXT_HEADER_OFFSET].toInt() and 0xff) != ICMPV6_NEXT_HEADER) return null
+        val payloadBytes = readU16(frame, offset + IPV6_PAYLOAD_LENGTH_OFFSET)
+        if (payloadBytes < ICMPV6_NA_BYTES || IPV6_HEADER_BYTES + payloadBytes > length) return null
+        if ((frame[offset + IPV6_HEADER_BYTES].toInt() and 0xff) != ICMPV6_NEIGHBOR_SOLICITATION) return null
+        if ((frame[offset + IPV6_HEADER_BYTES + 1].toInt() and 0xff) != 0) return null
+
+        val targetOffset = offset + IPV6_HEADER_BYTES + 8
+        for (i in 0 until 16) {
+            if (frame[targetOffset + i] != hostIpv6[i]) return null
+        }
+
+        val srcOffset = offset + IPV6_SOURCE_OFFSET
+        var srcUnspecified = true
+        for (i in 0 until 16) {
+            if (frame[srcOffset + i].toInt() != 0) {
+                srcUnspecified = false
+                break
+            }
+        }
+
+        val naPayloadLen = ICMPV6_NA_BYTES + 8
+        val reply = ByteArray(IPV6_HEADER_BYTES + naPayloadLen)
+        reply[0] = 0x60.toByte()
+        putU16(reply, IPV6_PAYLOAD_LENGTH_OFFSET, naPayloadLen)
+        reply[IPV6_NEXT_HEADER_OFFSET] = ICMPV6_NEXT_HEADER.toByte()
+        reply[7] = 255.toByte()
+        hostIpv6.copyInto(reply, IPV6_SOURCE_OFFSET)
+        if (srcUnspecified) {
+            reply[IPV6_DESTINATION_OFFSET] = 0xff.toByte()
+            reply[IPV6_DESTINATION_OFFSET + 1] = 0x02.toByte()
+            reply[IPV6_DESTINATION_OFFSET + 15] = 0x01.toByte()
+        } else {
+            frame.copyInto(reply, IPV6_DESTINATION_OFFSET, srcOffset, srcOffset + 16)
+        }
+        reply[IPV6_HEADER_BYTES] = ICMPV6_NEIGHBOR_ADVERTISEMENT.toByte()
+        reply[IPV6_HEADER_BYTES + 1] = 0
+        reply[IPV6_HEADER_BYTES + 4] = (if (srcUnspecified) 0x20 else 0x60).toByte()
+        hostIpv6.copyInto(reply, IPV6_HEADER_BYTES + 8)
+        val optOffset = IPV6_HEADER_BYTES + ICMPV6_NA_BYTES
+        reply[optOffset] = ICMPV6_TARGET_LINK_LAYER_OPTION.toByte()
+        reply[optOffset + 1] = 1
+        hostMac.copyInto(reply, optOffset + 2)
+        writeIcmpv6Checksum(reply)
+        return reply
+    }
+
     private fun writeIcmpv6Checksum(ipv6: ByteArray) {
         val payloadBytes = readU16(ipv6, IPV6_PAYLOAD_LENGTH_OFFSET)
         ipv6[IPV6_HEADER_BYTES + 2] = 0
@@ -150,6 +214,7 @@ object EthernetIpv6Codec {
     private const val IPV6_SOURCE_OFFSET = 8
     private const val IPV6_DESTINATION_OFFSET = 24
     private const val ICMPV6_NEXT_HEADER = 58
+    private const val ICMPV6_NEIGHBOR_SOLICITATION = 135
     private const val ICMPV6_NEIGHBOR_ADVERTISEMENT = 136
     private const val ICMPV6_NA_BYTES = 24
     private const val ICMPV6_NA_MIN_BYTES = IPV6_HEADER_BYTES + ICMPV6_NA_BYTES

@@ -109,7 +109,7 @@ class AirPlaySession(
     private val touchSendFailureLogged = AtomicBoolean(false)
     // Only the controller's single touch thread calls sendTouch.
     private val touchSlots = AirPlayTouchSlots(AirPlayHid.TOUCH_CONTACTS)
-    private val ntp = NtpClock()
+    private val ntp = NtpClock { debugLog(it) }
     private var keepAliveSocket: DatagramSocket? = null
     private var keepAliveThread: Thread? = null
     private val eventWriteLock = Any()
@@ -818,7 +818,8 @@ class AirPlaySession(
     }
 
     private fun openTiming(peerPort: Int): Int {
-        val port = ntp.listen()
+        val port = ntp.listen(localAddress)
+        debugLog("airplay timing open local=${localAddress?.hostAddress ?: "::"}:$port peer=${peerAddress?.hostAddress ?: "none"}:$peerPort")
         if (peerPort > 0) peerAddress?.let { ntp.start(it, peerPort) }
         return port
     }

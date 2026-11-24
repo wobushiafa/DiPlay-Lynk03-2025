@@ -30,7 +30,7 @@ internal data class HotspotSelection(val name: String, val index: Int, val addre
 }
 
 internal fun selectHotspotInterface(snapshot: HotspotNetworkSnapshot, log: (String) -> Unit): HotspotSelection? {
-    if (!snapshot.consistent || snapshot.apEnabled == false) {
+    if (!snapshot.consistent || (!GeelyHeadUnit.detected && snapshot.apEnabled == false)) {
         log("hotspot sample rejected: network_changed=${!snapshot.consistent} apEnabled=${snapshot.apEnabled}")
         return null
     }

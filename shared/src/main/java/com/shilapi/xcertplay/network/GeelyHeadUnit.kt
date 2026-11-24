@@ -1,6 +1,10 @@
 package com.shilapi.xcertplay.network
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import android.os.Build
+import com.shilapi.xcertplay.adb.AdbKeys
+import com.shilapi.xcertplay.adb.LocalAdb
 
 /**
  * Identifies the Geely / Lynk & Co head unit (`geely_fx11`, model `CS11_A4`, DesaySV, Android 11)
@@ -31,5 +35,48 @@ object GeelyHeadUnit {
 
     val detected: Boolean = identifiers.any { id ->
         id == PRODUCT || id == MODEL || id.contains("geely") || id.contains("lynk")
+    }
+
+    /**
+     * Toggles Android's own NXP Wi-Fi radio (`wlan0`/`p2p0`) on Geely/Lynk dual-Wi-Fi head units.
+     * Tries the legacy WifiManager setter first, then falls back to local ADB (`svc wifi enable/disable`).
+     */
+    @Suppress("DEPRECATION")
+    fun setAndroidWifiEnabled(
+        context: Context,
+        enabled: Boolean,
+        log: (String) -> Unit = {},
+    ): Boolean {
+        if (!detected) return false
+        val app = context.applicationContext
+        val wifi = app.getSystemService(WifiManager::class.java) ?: return false
+        if (runCatching { wifi.isWifiEnabled }.getOrNull() == enabled) return true
+        val direct = runCatching { wifi.setWifiEnabled(enabled) }.getOrDefault(false)
+        if (!direct) {
+            runCatching {
+                LocalAdb(AdbKeys.load(app)).use { adb ->
+                    val access = adb.connect(mayAsk = false)
+                    if (access == LocalAdb.Access.READY) {
+                        adb.shell(if (enabled) "svc wifi enable" else "svc wifi disable", 4_000)
+                        log("geely wifi: local ADB svc wifi ${if (enabled) "enable" else "disable"} sent")
+                    } else {
+                        log("geely wifi: local ADB unavailable ($access)")
+                    }
+                }
+            }.onFailure { log("geely wifi: local ADB error ${it.javaClass.simpleName}") }
+        } else {
+            log("geely wifi: WifiManager.setWifiEnabled($enabled) accepted")
+        }
+        val deadline = System.nanoTime() + 3_000_000_000L
+        while (System.nanoTime() < deadline) {
+            if (runCatching { wifi.isWifiEnabled }.getOrNull() == enabled) return true
+            try {
+                Thread.sleep(150)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                break
+            }
+        }
+        return runCatching { wifi.isWifiEnabled }.getOrNull() == enabled
     }
 }

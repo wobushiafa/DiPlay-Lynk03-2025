@@ -5341,6 +5341,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun applyWirelessLink(mode: WirelessHotspotMode) {
         startupHotspotCancelled = true
         AirPlayPersistence.saveWirelessHotspotMode(this, mode)
+        if (com.shilapi.xcertplay.network.GeelyHeadUnit.detected) {
+            val enable = mode == WirelessHotspotMode.WIFI_P2P
+            Thread({
+                com.shilapi.xcertplay.network.GeelyHeadUnit.setAndroidWifiEnabled(applicationContext, enable)
+            }, "geely-wifi-toggle").apply { isDaemon = true; start() }
+        }
         render()
         toast(getString(R.string.saved_for_your_next_connection))
     }
@@ -5590,8 +5596,13 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun carButtonControls(parent: LinearLayout) {
         val custom = AirPlayPersistence.loadCustomAirPlayIconFile(this)?.let { BitmapFactory.decodeFile(it.absolutePath) }
         val preview = row().apply { gravity = Gravity.CENTER_VERTICAL }
+        val defaultIconRes = if (com.shilapi.xcertplay.network.GeelyHeadUnit.detected) {
+            R.raw.ic_car_home_lynk
+        } else {
+            R.raw.ic_car_home
+        }
         preview.addView(ImageView(this).apply {
-            setImageBitmap(custom ?: BitmapFactory.decodeResource(resources, R.raw.ic_car_home))
+            setImageBitmap(custom ?: BitmapFactory.decodeResource(resources, defaultIconRes))
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = rounded(SURFACE, BORDER)
             clipToOutline = true

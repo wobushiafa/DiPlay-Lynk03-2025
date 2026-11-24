@@ -23,10 +23,12 @@ class Ipv6NcmBridge(
     private val ncm: NcmUsbBridge,
     private val tun: ParcelFileDescriptor,
     private val hostMac: ByteArray,
+    private val hostIpv6: ByteArray? = null,
     private val onError: (Throwable) -> Unit,
 ) : Closeable {
     init {
         require(hostMac.size == EthernetIpv6Codec.MAC_BYTES) { "hostMac must be 6 bytes" }
+        require(hostIpv6 == null || hostIpv6.size == 16) { "hostIpv6 must be 16 bytes" }
     }
 
     @Volatile
@@ -78,6 +80,17 @@ class Ipv6NcmBridge(
                 if (inboundLogBudget > 0) {
                     inboundLogBudget--
                     Log.i(TAG, "ncm inbound ${frame.summary(ipv6.payloadOffset)}")
+                }
+                val naReply = hostIpv6?.let {
+                    EthernetIpv6Codec.buildNeighborAdvertisementReply(
+                        frame, ipv6.payloadOffset, ipv6.payloadLength, it, hostMac,
+                    )
+                }
+                if (naReply != null) {
+                    val destMac = EthernetIpv6Codec.multicastDestinationMac(naReply) ?: ipv6.sourceMac
+                    ncm.send(EthernetIpv6Codec.build(hostMac, destMac, naReply), WRITE_TIMEOUT_MILLIS)
+                    Log.i(TAG, "ncm replied directly to neighbor solicitation ${naReply.summary(0)}")
+                    continue
                 }
                 output.write(frame, ipv6.payloadOffset, ipv6.payloadLength)
             }

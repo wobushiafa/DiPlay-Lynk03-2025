@@ -145,6 +145,7 @@ object AirPlayPersistence {
     const val DEFAULT_MANUFACTURER = "DiPlay"
     const val DEFAULT_MODEL = "DiPlay"
     const val DEFAULT_OEM_LABEL = "BYD"
+    const val DEFAULT_LYNK_OEM_LABEL = "领克"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
     fun loadAmbientDelaySeconds(context: Context): Int =
@@ -249,7 +250,7 @@ object AirPlayPersistence {
 
     fun loadAudioFocusEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_AUDIO_FOCUS_ENABLED, false)
+            .getBoolean(KEY_AUDIO_FOCUS_ENABLED, com.shilapi.xcertplay.network.GeelyHeadUnit.detected)
 
     fun saveAudioFocusEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -270,7 +271,7 @@ object AirPlayPersistence {
     /** Opt-in (#946, #545): each navigation prompt requests duckable focus. Applies only while audio focus is on. */
     fun loadNavigationPromptAudioFocus(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_NAVIGATION_PROMPT_AUDIO_FOCUS, false)
+            .getBoolean(KEY_NAVIGATION_PROMPT_AUDIO_FOCUS, com.shilapi.xcertplay.network.GeelyHeadUnit.detected)
 
     fun saveNavigationPromptAudioFocus(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -281,7 +282,7 @@ object AirPlayPersistence {
     /** Opt-out for head units that route physical volume buttons to DiPlay's focus owner. */
     fun loadDisableMediaKeyAudioFocus(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_DISABLE_MEDIA_KEY_AUDIO_FOCUS, false)
+            .getBoolean(KEY_DISABLE_MEDIA_KEY_AUDIO_FOCUS, com.shilapi.xcertplay.network.GeelyHeadUnit.detected)
 
     fun saveDisableMediaKeyAudioFocus(context: Context, disabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -629,11 +630,17 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadOemLabel(context: Context): String =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_OEM_LABEL, DEFAULT_OEM_LABEL)
+    fun loadOemLabel(context: Context): String {
+        val defaultLabel = if (com.shilapi.xcertplay.network.GeelyHeadUnit.detected) {
+            DEFAULT_LYNK_OEM_LABEL
+        } else {
+            DEFAULT_OEM_LABEL
+        }
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_OEM_LABEL, defaultLabel)
             // iOS hides the car icon without a label.
-            .orEmpty().ifBlank { DEFAULT_OEM_LABEL }
+            .orEmpty().ifBlank { defaultLabel }
+    }
 
     fun saveOemLabel(context: Context, oemLabel: String) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()

@@ -16,7 +16,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * transmit stamps. The resulting offset and round-trip time steer a local monotonic clock onto
  * the phone's media-clock domain, which /feedback reports.
  */
-class NtpClock : Closeable {
+class NtpClock(
+    private val onDiagnostic: (String) -> Unit = {},
+) : Closeable {
     private val running = AtomicBoolean(false)
     private val socketLock = Any()
     private val clockLock = Any()
@@ -26,6 +28,11 @@ class NtpClock : Closeable {
     private var sender: Thread? = null
     // Written by the session thread, read by the receive thread.
     @Volatile private var peer: InetSocketAddress? = null
+    @Volatile private var sendErrorLogged = false
+    @Volatile private var firstRequestLogged = false
+    @Volatile private var firstResponseLogged = false
+    @Volatile private var mismatchLogged = false
+    private var responseCount = 0
 
     private var clockOffsetNs = wallClockNtpOffsetNs(System.nanoTime())
     private val delays = DoubleArray(DELAY_WINDOW) { Double.POSITIVE_INFINITY }
@@ -36,11 +43,11 @@ class NtpClock : Closeable {
     private var pendingT1: BigInteger? = null
     private var synced = false
 
-    fun listen(): Int {
+    fun listen(bindAddress: InetAddress? = null): Int {
         check(!running.getAndSet(true)) { "NtpClock is already running" }
         val bound = DatagramSocket(null)
         bound.reuseAddress = true
-        bound.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
+        bound.bind(InetSocketAddress(bindAddress ?: InetAddress.getByName("::"), 0))
         synchronized(socketLock) { socket = bound }
         receiver = Thread(::runReceiver, "airplay-ntp-rx").apply { isDaemon = true; start() }
         return bound.localPort
@@ -74,7 +81,11 @@ class NtpClock : Closeable {
                 Thread.sleep(REQUEST_INTERVAL_MS)
             } catch (_: InterruptedException) {
                 return
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                if (!sendErrorLogged) {
+                    sendErrorLogged = true
+                    onDiagnostic("airplay timing tx failed: ${error.javaClass.simpleName}: ${error.message}")
+                }
                 try {
                     Thread.sleep(REQUEST_INTERVAL_MS)
                 } catch (_: InterruptedException) {
@@ -116,8 +127,29 @@ class NtpClock : Closeable {
 
     private fun handleMessage(message: ByteArray, source: InetSocketAddress) {
         when (message[1].toInt() and 0xff) {
-            PT_REQUEST -> respondToRequest(message, source)
-            PT_RESPONSE -> if (source.address == peer?.address) handleResponse(message)
+            PT_REQUEST -> {
+                if (!firstRequestLogged) {
+                    firstRequestLogged = true
+                    onDiagnostic("airplay timing rx PT_REQUEST from=${source.address?.hostAddress}:${source.port}")
+                }
+                respondToRequest(message, source)
+            }
+            PT_RESPONSE -> {
+                if (source.address == peer?.address) {
+                    responseCount++
+                    if (!firstResponseLogged || responseCount % 5 == 0) {
+                        firstResponseLogged = true
+                        onDiagnostic("airplay timing rx PT_RESPONSE count=$responseCount from=${source.address?.hostAddress}:${source.port}")
+                    }
+                    handleResponse(message)
+                } else if (!mismatchLogged) {
+                    mismatchLogged = true
+                    onDiagnostic(
+                        "airplay timing rx PT_RESPONSE dropped from=${source.address?.hostAddress} " +
+                            "expected=${peer?.address?.hostAddress}",
+                    )
+                }
+            }
         }
     }
 
@@ -168,6 +200,7 @@ class NtpClock : Closeable {
     }
 
     private fun applyOffset(offsetSec: Double) {
+        val wasSynced = synced
         val stepping = !synced || Math.abs(offsetSec) > STEP_THRESHOLD_SEC
         val applied = if (stepping) offsetSec else offsetSec * SLEW_GAIN
         clockOffsetNs += Math.round(applied * 1e9)
@@ -176,6 +209,9 @@ class NtpClock : Closeable {
             delayIndex = 0
             pendingT1 = null
             synced = true
+            onDiagnostic(
+                "airplay timing synced=${!wasSynced} stepOffsetSec=${"%.3f".format(offsetSec)}",
+            )
         }
     }
 

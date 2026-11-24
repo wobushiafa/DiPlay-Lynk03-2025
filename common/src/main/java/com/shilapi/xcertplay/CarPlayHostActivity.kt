@@ -5156,9 +5156,15 @@ open class CarPlayHostActivity : ComponentActivity() {
         return AirPlayIcon(size, size, bytes)
     }
 
-    private fun defaultAirPlayIconBytes(): ByteArray =
+    private fun defaultAirPlayIconBytes(): ByteArray {
         // Shown in CarPlay's app list as the "back to the car" button.
-        resources.openRawResource(R.raw.ic_car_home).use { it.readBytes() }
+        val iconRes = if (com.shilapi.xcertplay.network.GeelyHeadUnit.detected) {
+            R.raw.ic_car_home_lynk
+        } else {
+            R.raw.ic_car_home
+        }
+        return resources.openRawResource(iconRes).use { it.readBytes() }
+    }
 
     private fun updateAirPlayIconPreview() {
         val preview = iconPreviewView ?: return

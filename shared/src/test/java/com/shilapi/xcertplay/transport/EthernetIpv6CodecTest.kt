@@ -62,6 +62,42 @@ class EthernetIpv6CodecTest {
         assertEquals(0xffff, ipv6IcmpChecksumSum(result))
     }
 
+    @Test
+    fun `synthesizes neighbor advertisement reply for host neighbor solicitation`() {
+        val hostIp = byteArrayOf(0xfe.toByte(), 0x80.toByte(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2)
+        val peerIp = byteArrayOf(0xfe.toByte(), 0x80.toByte(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1)
+        val mac = byteArrayOf(0x02, 0x00, 0x00, 0x00, 0x00, 0x02)
+        val ns = ByteArray(64)
+        ns[0] = 0x60
+        ns[5] = 24
+        ns[6] = 58
+        ns[7] = 255.toByte()
+        peerIp.copyInto(ns, 8)
+        byteArrayOf(0xff.toByte(), 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0xff.toByte(), 0, 0, 2)
+            .copyInto(ns, 24)
+        ns[40] = 135.toByte()
+        hostIp.copyInto(ns, 48)
+
+        val reply = EthernetIpv6Codec.buildNeighborAdvertisementReply(ns, 0, ns.size, hostIp, mac)
+        requireNotNull(reply)
+        assertEquals(72, reply.size)
+        assertEquals(32, ((reply[4].toInt() and 0xff) shl 8) or (reply[5].toInt() and 0xff))
+        assertEquals(58, reply[6].toInt() and 0xff)
+        assertEquals(255, reply[7].toInt() and 0xff)
+        assertArrayEquals(hostIp, reply.copyOfRange(8, 24))
+        assertArrayEquals(peerIp, reply.copyOfRange(24, 40))
+        assertEquals(136, reply[40].toInt() and 0xff)
+        assertEquals(0x60, reply[44].toInt() and 0xff)
+        assertArrayEquals(hostIp, reply.copyOfRange(48, 64))
+        assertEquals(2, reply[64].toInt() and 0xff)
+        assertEquals(1, reply[65].toInt() and 0xff)
+        assertArrayEquals(mac, reply.copyOfRange(66, 72))
+        assertEquals(0xffff, ipv6IcmpChecksumSum(reply))
+
+        val otherHostIp = byteArrayOf(0xfe.toByte(), 0x80.toByte(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9)
+        assertNull(EthernetIpv6Codec.buildNeighborAdvertisementReply(ns, 0, ns.size, otherHostIp, mac))
+    }
+
     private fun ipv6IcmpChecksumSum(packet: ByteArray): Int {
         val payloadBytes = ((packet[4].toInt() and 0xff) shl 8) or (packet[5].toInt() and 0xff)
         var sum = 0L

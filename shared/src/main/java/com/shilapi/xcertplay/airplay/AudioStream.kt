@@ -180,9 +180,16 @@ class AudioStream(
 
     private fun runControl(socket: DatagramSocket) {
         val buffer = ByteArray(DATAGRAM_BYTES)
+        var logged = 0
         while (!closed.get()) {
             try {
-                socket.receive(DatagramPacket(buffer, buffer.size))
+                val packet = DatagramPacket(buffer, buffer.size)
+                socket.receive(packet)
+                if (logged < 3 && packet.length >= 2) {
+                    logged++
+                    val pt = buffer[1].toInt() and 0xff
+                    onDiagnostic("Audio RTCP rx type=$streamType count=$logged bytes=${packet.length} pt=$pt")
+                }
             } catch (_: Exception) {
                 if (closed.get()) return
             }

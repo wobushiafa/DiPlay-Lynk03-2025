@@ -38,6 +38,7 @@ object CarHotspotSettings {
      * choice, so a head unit whose report is right warns again the next time its hotspot really is off.
      */
     fun reportedOff(context: Context, state: Boolean?): Boolean {
+        if (GeelyHeadUnit.detected) return false
         if (state == true) {
             if (offReportIgnored(context)) setOffReportIgnored(context, false)
             return false
